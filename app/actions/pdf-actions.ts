@@ -5,6 +5,7 @@ import path from "path";
 import mysql from "mysql2/promise";
 import { getConfig } from "./config-actions";
 import { addSyncLog } from "./sync-log-actions";
+import { logEvent, logError } from "@/lib/logger";
 
 export interface PdfFile {
   name: string;
@@ -390,6 +391,17 @@ export async function savePdfFilesToDatabase(
         });
       }
 
+      // Log to BOLT Server app.log
+      logEvent("Database sync completed", {
+        queueType,
+        uncPath,
+        filesScanned: scanned,
+        filesAdded: inserted,
+        filesUpdated: updated,
+        filesDeleted: deleted,
+        errors,
+      });
+
       return {
         success: true,
         message,
@@ -433,6 +445,13 @@ export async function savePdfFilesToDatabase(
         message,
       });
     }
+
+    // Log to BOLT Server error.log
+    logError(error instanceof Error ? error : new Error(message), {
+      queueType,
+      uncPath,
+      filesScanned: scanned,
+    });
 
     return { success: false, message, scanned };
   } finally {

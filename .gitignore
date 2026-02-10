@@ -44,3 +44,7 @@ next-env.d.ts
 local.db
 local.db-journal
 /drizzle
+
+# logs
+/logs/
+*.log

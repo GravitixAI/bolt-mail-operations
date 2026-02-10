@@ -3,6 +3,7 @@
 import { getConfig } from "./config-actions";
 import { listPdfFiles, savePdfFilesToDatabase } from "./pdf-actions";
 import { addSyncLog } from "./sync-log-actions";
+import { logEvent, logError, logWarning } from "@/lib/logger";
 
 export interface AutoSyncResult {
   success: boolean;
@@ -23,9 +24,12 @@ export interface AutoSyncResult {
  * Run auto-sync for both mail queues
  */
 export async function runAutoSync(): Promise<AutoSyncResult> {
+  logEvent("Auto-sync started", { trigger: "scheduled" });
+
   const configResult = await getConfig();
   
   if (!configResult.success || !configResult.config) {
+    logError("Auto-sync failed to load configuration");
     return {
       success: false,
       message: "Failed to load configuration",
@@ -36,6 +40,7 @@ export async function runAutoSync(): Promise<AutoSyncResult> {
 
   // Check if auto-sync is enabled
   if (!config.autoSyncEnabled) {
+    logWarning("Auto-sync triggered but disabled");
     return {
       success: false,
       message: "Auto-sync is disabled",
@@ -60,12 +65,20 @@ export async function runAutoSync(): Promise<AutoSyncResult> {
           false // Don't skip logging
         );
         
+        logEvent("Certified mail sync completed", {
+          filesScanned: listResult.files.length,
+          success: saveResult.success,
+        });
+        
         results.certifiedResult = {
           success: saveResult.success,
           message: saveResult.message,
           scanned: listResult.files.length,
         };
       } else {
+        const errorMsg = listResult.error || "Failed to list PDF files";
+        logError(errorMsg, { queueType: "certified", uncPath: config.uncPathCertified });
+        
         // Log the error
         await addSyncLog({
           queueType: "certified",
@@ -76,17 +89,21 @@ export async function runAutoSync(): Promise<AutoSyncResult> {
           filesDeleted: 0,
           errors: 1,
           status: "error",
-          message: listResult.error || "Failed to list PDF files",
+          message: errorMsg,
         });
         
         results.certifiedResult = {
           success: false,
-          message: listResult.error || "Failed to list PDF files",
+          message: errorMsg,
           scanned: 0,
         };
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
+      logError(error instanceof Error ? error : new Error(message), {
+        queueType: "certified",
+        uncPath: config.uncPathCertified,
+      });
       
       await addSyncLog({
         queueType: "certified",
@@ -121,12 +138,20 @@ export async function runAutoSync(): Promise<AutoSyncResult> {
           false // Don't skip logging
         );
         
+        logEvent("Regular mail sync completed", {
+          filesScanned: listResult.files.length,
+          success: saveResult.success,
+        });
+        
         results.regularResult = {
           success: saveResult.success,
           message: saveResult.message,
           scanned: listResult.files.length,
         };
       } else {
+        const errorMsg = listResult.error || "Failed to list PDF files";
+        logError(errorMsg, { queueType: "regular", uncPath: config.uncPathRegular });
+        
         await addSyncLog({
           queueType: "regular",
           uncPath: config.uncPathRegular,
@@ -136,17 +161,21 @@ export async function runAutoSync(): Promise<AutoSyncResult> {
           filesDeleted: 0,
           errors: 1,
           status: "error",
-          message: listResult.error || "Failed to list PDF files",
+          message: errorMsg,
         });
         
         results.regularResult = {
           success: false,
-          message: listResult.error || "Failed to list PDF files",
+          message: errorMsg,
           scanned: 0,
         };
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
+      logError(error instanceof Error ? error : new Error(message), {
+        queueType: "regular",
+        uncPath: config.uncPathRegular,
+      });
       
       await addSyncLog({
         queueType: "regular",
@@ -181,6 +210,13 @@ export async function runAutoSync(): Promise<AutoSyncResult> {
   results.success = 
     (results.certifiedResult?.success ?? true) && 
     (results.regularResult?.success ?? true);
+
+  logEvent("Auto-sync completed", {
+    success: results.success,
+    message: results.message,
+    certifiedScanned: results.certifiedResult?.scanned ?? 0,
+    regularScanned: results.regularResult?.scanned ?? 0,
+  });
 
   return results;
 }
