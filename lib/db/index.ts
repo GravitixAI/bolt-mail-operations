@@ -18,4 +18,30 @@ export function initDB() {
       updated_at INTEGER NOT NULL
     )
   `);
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS app_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      value TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS sync_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      queue_type TEXT NOT NULL,
+      unc_path TEXT NOT NULL,
+      files_scanned INTEGER NOT NULL DEFAULT 0,
+      files_added INTEGER NOT NULL DEFAULT 0,
+      files_updated INTEGER NOT NULL DEFAULT 0,
+      files_deleted INTEGER NOT NULL DEFAULT 0,
+      errors INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      message TEXT,
+      synced_at INTEGER NOT NULL
+    )
+  `);
 }

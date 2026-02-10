@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Navbar, NavLink } from "@/components/navbar";
 import { Button } from "@/components/ui/button";
@@ -12,337 +13,391 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { ConfigModal } from "@/components/config-modal";
+import { getSyncLogs, type SyncLogEntry } from "@/app/actions/sync-log-actions";
+import { getConfig, type ConfigValues } from "@/app/actions/config-actions";
 import {
-  ArrowRight,
-  Sparkles,
-  Code,
-  Palette,
-  Zap,
-  Component,
-  LayoutDashboard,
-  Rocket,
+  Mail,
+  Settings,
+  FileText,
   Database,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  ArrowRight,
+  RefreshCw,
+  Activity,
+  Inbox,
+  Send,
 } from "lucide-react";
 
+interface DashboardStats {
+  totalSyncs: number;
+  successfulSyncs: number;
+  errorSyncs: number;
+  totalFilesProcessed: number;
+  totalAdded: number;
+  totalUpdated: number;
+  totalDeleted: number;
+  lastSyncTime: Date | null;
+  certifiedSyncs: number;
+  regularSyncs: number;
+  autoSyncEnabled: boolean;
+  autoSyncInterval: number;
+}
+
 export default function Home() {
+  const [stats, setStats] = useState<DashboardStats>({
+    totalSyncs: 0,
+    successfulSyncs: 0,
+    errorSyncs: 0,
+    totalFilesProcessed: 0,
+    totalAdded: 0,
+    totalUpdated: 0,
+    totalDeleted: 0,
+    lastSyncTime: null,
+    certifiedSyncs: 0,
+    regularSyncs: 0,
+    autoSyncEnabled: false,
+    autoSyncInterval: 5,
+  });
+  const [recentLogs, setRecentLogs] = useState<SyncLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadDashboardData = async () => {
+    setLoading(true);
+    try {
+      const [logs, configResult] = await Promise.all([
+        getSyncLogs(50),
+        getConfig(),
+      ]);
+
+      // Calculate stats from logs
+      const totalSyncs = logs.length;
+      const successfulSyncs = logs.filter((l) => l.status === "success").length;
+      const errorSyncs = logs.filter((l) => l.status === "error").length;
+      const totalFilesProcessed = logs.reduce((sum, l) => sum + l.filesScanned, 0);
+      const totalAdded = logs.reduce((sum, l) => sum + l.filesAdded, 0);
+      const totalUpdated = logs.reduce((sum, l) => sum + l.filesUpdated, 0);
+      const totalDeleted = logs.reduce((sum, l) => sum + l.filesDeleted, 0);
+      const lastSyncTime = logs.length > 0 ? new Date(logs[0].syncedAt) : null;
+      const certifiedSyncs = logs.filter((l) => l.queueType === "certified").length;
+      const regularSyncs = logs.filter((l) => l.queueType === "regular").length;
+
+      setStats({
+        totalSyncs,
+        successfulSyncs,
+        errorSyncs,
+        totalFilesProcessed,
+        totalAdded,
+        totalUpdated,
+        totalDeleted,
+        lastSyncTime,
+        certifiedSyncs,
+        regularSyncs,
+        autoSyncEnabled: configResult.config?.autoSyncEnabled ?? false,
+        autoSyncInterval: configResult.config?.autoSyncInterval ?? 5,
+      });
+
+      setRecentLogs(logs.slice(0, 5));
+    } catch (error) {
+      console.error("Failed to load dashboard data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDashboardData();
+
+    // Refresh every 30 seconds
+    const interval = setInterval(loadDashboardData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatTime = (date: Date | null) => {
+    if (!date) return "Never";
+    return new Date(date).toLocaleString();
+  };
+
+  const getTimeSince = (date: Date | null) => {
+    if (!date) return "Never";
+    const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+  };
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <Navbar
-        logo={<Rocket className="h-8 w-8 text-primary" />}
-        title="Next.js Boilerplate"
+        logo={<Mail className="h-8 w-8 text-primary" />}
+        title="BOLT Mail Operations"
       >
         <NavLink href="/" active>
           Home
         </NavLink>
-        <NavLink href="/custom-components">Components</NavLink>
+        <NavLink href="/pdf-browser">Certified Mail</NavLink>
+        <NavLink href="/regular-mail">Regular Mail</NavLink>
+        <NavLink href="/sync-log">Sync Log</NavLink>
+        <ConfigModal
+          trigger={
+            <button className="p-2 rounded-md hover:bg-accent transition-colors">
+              <Settings className="h-5 w-5" />
+            </button>
+          }
+        />
       </Navbar>
 
-      {/* Hero Section */}
-      <section className="container py-20">
-        <div className="mx-auto max-w-4xl text-center space-y-6">
-          <Badge variant="secondary" className="mb-2">
-            <Sparkles className="mr-1 h-3 w-3" />
-            Next.js 15 + shadcn/ui
-          </Badge>
-          <h1 className="text-5xl font-bold tracking-tight sm:text-6xl md:text-7xl">
-            Modern Next.js
-            <span className="text-primary block mt-2">Boilerplate</span>
-          </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            A production-ready Next.js boilerplate with 50+ themes, beautiful
-            components, and best practices built in. Start building immediately.
-          </p>
-          <div className="flex flex-wrap gap-4 justify-center pt-4">
-            <Link href="/custom-components">
-              <Button size="lg" className="text-lg">
-                <Component className="mr-2 h-5 w-5" />
-                Explore Components
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            </Link>
-            <Link href="/theme-switcher-demo">
-              <Button size="lg" variant="outline" className="text-lg">
-                <Palette className="mr-2 h-5 w-5" />
-                Try Themes
-              </Button>
-            </Link>
+      <div className="container py-8 space-y-8">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Dashboard</h1>
+            <p className="text-muted-foreground mt-1">
+              Mail operations overview and quick access
+            </p>
           </div>
-        </div>
-      </section>
-
-      <Separator className="my-12" />
-
-      {/* Features Section */}
-      <section className="container py-12">
-        <div className="text-center space-y-4 mb-12">
-          <h2 className="text-3xl font-bold sm:text-4xl">
-            Everything You Need to Start
-          </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Built with modern technologies and best practices for building
-            production-ready applications
-          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadDashboardData}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
         </div>
 
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-          <Card className="relative overflow-hidden group hover:shadow-lg transition-all">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <CardHeader>
-              <Palette className="h-12 w-12 text-primary mb-4" />
-              <CardTitle className="text-2xl">50+ Themes</CardTitle>
-              <CardDescription className="text-base">
-                Choose from over 50 professionally designed themes with both
-                light and dark modes. Switch instantly without page reload.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="relative overflow-hidden group hover:shadow-lg transition-all">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <CardHeader>
-              <Component className="h-12 w-12 text-primary mb-4" />
-              <CardTitle className="text-2xl">Custom Components</CardTitle>
-              <CardDescription className="text-base">
-                Beautifully crafted components with full documentation, examples,
-                and TypeScript support. Ready to use in your projects.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="relative overflow-hidden group hover:shadow-lg transition-all">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <CardHeader>
-              <Code className="h-12 w-12 text-primary mb-4" />
-              <CardTitle className="text-2xl">TypeScript First</CardTitle>
-              <CardDescription className="text-base">
-                Fully typed components and utilities. Catch errors early and
-                enjoy better IDE support and autocomplete.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="relative overflow-hidden group hover:shadow-lg transition-all">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <CardHeader>
-              <LayoutDashboard className="h-12 w-12 text-primary mb-4" />
-              <CardTitle className="text-2xl">Responsive Design</CardTitle>
-              <CardDescription className="text-base">
-                All components are mobile-first and fully responsive. Works
-                beautifully on any screen size and device.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="relative overflow-hidden group hover:shadow-lg transition-all">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <CardHeader>
-              <Zap className="h-12 w-12 text-primary mb-4" />
-              <CardTitle className="text-2xl">Fast & Optimized</CardTitle>
-              <CardDescription className="text-base">
-                Built on Next.js 15 with App Router. Optimized for performance
-                with fast refresh and instant page loads.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="relative overflow-hidden group hover:shadow-lg transition-all">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <CardHeader>
-              <Sparkles className="h-12 w-12 text-primary mb-4" />
-              <CardTitle className="text-2xl">Modern Stack</CardTitle>
-              <CardDescription className="text-base">
-                Next.js, React, TypeScript, Tailwind CSS, and shadcn/ui. The
-                best tools for building modern web applications.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <Card className="relative overflow-hidden group hover:shadow-lg transition-all">
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <CardHeader>
-              <Database className="h-12 w-12 text-primary mb-4" />
-              <CardTitle className="text-2xl">SQLite & ORM</CardTitle>
-              <CardDescription className="text-base">
-                Integrated SQLite database with Drizzle ORM. Type-safe queries,
-                full CRUD operations, and production-ready setup included.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </div>
-      </section>
-
-      <Separator className="my-12" />
-
-      {/* Quick Links Section */}
-      <section className="container py-12">
-        <div className="text-center space-y-4 mb-12">
-          <h2 className="text-3xl font-bold sm:text-4xl">Get Started</h2>
-          <p className="text-lg text-muted-foreground">
-            Explore the components and features
-          </p>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 max-w-7xl mx-auto">
-          <Link href="/custom-components">
-            <Card className="group hover:shadow-lg transition-all cursor-pointer h-full">
-              <CardHeader className="space-y-4">
-                <Component className="h-10 w-10 text-primary" />
-                <CardTitle className="text-xl group-hover:text-primary transition-colors">
-                  Component Library
-                </CardTitle>
-                <CardDescription>
-                  Browse the collection of custom components with demos and
-                  documentation
-                </CardDescription>
-                <Button variant="outline" className="w-full mt-4">
-                  View Components
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </CardHeader>
-            </Card>
-          </Link>
-
-          <Link href="/theme-switcher-demo">
-            <Card className="group hover:shadow-lg transition-all cursor-pointer h-full">
-              <CardHeader className="space-y-4">
-                <Palette className="h-10 w-10 text-primary" />
-                <CardTitle className="text-xl group-hover:text-primary transition-colors">
-                  Theme Showcase
-                </CardTitle>
-                <CardDescription>
-                  Experience 50+ beautiful themes with live component examples
-                  and color palettes
-                </CardDescription>
-                <Button variant="outline" className="w-full mt-4">
-                  Try Themes
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </CardHeader>
-            </Card>
-          </Link>
-
-          <Link href="/todo-crud">
-            <Card className="group hover:shadow-lg transition-all cursor-pointer h-full">
-              <CardHeader className="space-y-4">
-                <Database className="h-10 w-10 text-primary" />
-                <CardTitle className="text-xl group-hover:text-primary transition-colors">
-                  SQLite CRUD Demo
-                </CardTitle>
-                <CardDescription>
-                  Full-stack Todo app demonstrating SQLite database with complete
-                  CRUD operations
-                </CardDescription>
-                <Button variant="outline" className="w-full mt-4">
-                  Try Demo
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </CardHeader>
-            </Card>
-          </Link>
-
-          <Link href="/framer-motion-demo">
-            <Card className="group hover:shadow-lg transition-all cursor-pointer h-full">
-              <CardHeader className="space-y-4">
-                <Sparkles className="h-10 w-10 text-primary" />
-                <CardTitle className="text-xl group-hover:text-primary transition-colors">
-                  Framer Motion
-                </CardTitle>
-                <CardDescription>
-                  Comprehensive animation library demos with gestures, scroll effects,
-                  and parallax
-                </CardDescription>
-                <Button variant="outline" className="w-full mt-4">
-                  View Animations
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </CardHeader>
-            </Card>
-          </Link>
-        </div>
-      </section>
-
-      {/* Tech Stack */}
-      <section className="container py-12">
-        <Card className="bg-muted/50">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Built With Modern Technologies</CardTitle>
-            <CardDescription className="text-base pt-2">
-              This boilerplate uses the latest and most popular tools
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap justify-center gap-3">
-              <Badge variant="secondary" className="text-sm py-2 px-4">
-                Next.js 15
-              </Badge>
-              <Badge variant="secondary" className="text-sm py-2 px-4">
-                React 19
-              </Badge>
-              <Badge variant="secondary" className="text-sm py-2 px-4">
-                TypeScript
-              </Badge>
-              <Badge variant="secondary" className="text-sm py-2 px-4">
-                Tailwind CSS
-              </Badge>
-              <Badge variant="secondary" className="text-sm py-2 px-4">
-                shadcn/ui
-              </Badge>
-              <Badge variant="secondary" className="text-sm py-2 px-4">
-                next-themes
-              </Badge>
-              <Badge variant="secondary" className="text-sm py-2 px-4">
-                SQLite
-              </Badge>
-              <Badge variant="secondary" className="text-sm py-2 px-4">
-                Drizzle ORM
-              </Badge>
-              <Badge variant="secondary" className="text-sm py-2 px-4">
-                Framer Motion
+        {/* Auto-Sync Status Banner */}
+        <Card className={stats.autoSyncEnabled ? "border-green-500/50 bg-green-500/5" : "border-muted"}>
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${stats.autoSyncEnabled ? "bg-green-500/20" : "bg-muted"}`}>
+                  <Activity className={`h-5 w-5 ${stats.autoSyncEnabled ? "text-green-500" : "text-muted-foreground"}`} />
+                </div>
+                <div>
+                  <p className="font-medium">
+                    Auto-Sync: {stats.autoSyncEnabled ? "Enabled" : "Disabled"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {stats.autoSyncEnabled
+                      ? `Running every ${stats.autoSyncInterval} minute(s)`
+                      : "Configure in settings to enable automatic synchronization"}
+                  </p>
+                </div>
+              </div>
+              <Badge variant={stats.autoSyncEnabled ? "default" : "secondary"}>
+                {stats.autoSyncEnabled ? "Active" : "Inactive"}
               </Badge>
             </div>
           </CardContent>
         </Card>
-      </section>
 
-      {/* Footer */}
-      <footer className="border-t py-8 mt-12">
-        <div className="container">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-sm text-muted-foreground">
-              Built with Next.js, Tailwind CSS, and shadcn/ui
-            </p>
-            <div className="flex gap-4">
-              <Link href="/custom-components">
-                <Button variant="ghost" size="sm">
-                  Components
-                </Button>
-              </Link>
-              <Link href="/navbar-demo">
-                <Button variant="ghost" size="sm">
-                  Navbar Demo
-                </Button>
-              </Link>
-              <Link href="/theme-switcher-demo">
-                <Button variant="ghost" size="sm">
-                  Themes
-                </Button>
-              </Link>
-              <Link href="/todo-crud">
-                <Button variant="ghost" size="sm">
-                  Todo CRUD
-                </Button>
-              </Link>
-              <Link href="/framer-motion-demo">
-                <Button variant="ghost" size="sm">
-                  Framer Motion
-                </Button>
-              </Link>
-            </div>
-          </div>
+        {/* Stats Grid */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Total Syncs (24h)</CardTitle>
+              <Database className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.totalSyncs}</div>
+              <p className="text-xs text-muted-foreground">
+                {stats.certifiedSyncs} certified, {stats.regularSyncs} regular
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-500">
+                {stats.totalSyncs > 0
+                  ? Math.round((stats.successfulSyncs / stats.totalSyncs) * 100)
+                  : 0}%
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {stats.successfulSyncs} successful, {stats.errorSyncs} errors
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Files Processed</CardTitle>
+              <FileText className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.totalFilesProcessed}</div>
+              <p className="text-xs text-muted-foreground">
+                +{stats.totalAdded} added, ~{stats.totalUpdated} updated, -{stats.totalDeleted} deleted
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Last Sync</CardTitle>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{getTimeSince(stats.lastSyncTime)}</div>
+              <p className="text-xs text-muted-foreground">
+                {formatTime(stats.lastSyncTime)}
+              </p>
+            </CardContent>
+          </Card>
         </div>
-      </footer>
+
+        {/* Quick Actions */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <Link href="/pdf-browser">
+            <Card className="group hover:shadow-lg hover:border-primary/50 transition-all cursor-pointer h-full">
+              <CardHeader>
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-lg bg-primary/10 text-primary">
+                    <Inbox className="h-8 w-8" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl group-hover:text-primary transition-colors">
+                      Certified Mail Queue
+                    </CardTitle>
+                    <CardDescription>
+                      View and manage certified mail PDFs
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" className="w-full">
+                  Open Queue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/regular-mail">
+            <Card className="group hover:shadow-lg hover:border-primary/50 transition-all cursor-pointer h-full">
+              <CardHeader>
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-lg bg-primary/10 text-primary">
+                    <Send className="h-8 w-8" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl group-hover:text-primary transition-colors">
+                      Regular Mail Queue
+                    </CardTitle>
+                    <CardDescription>
+                      View and manage regular mail PDFs
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" className="w-full">
+                  Open Queue
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/sync-log">
+            <Card className="group hover:shadow-lg hover:border-primary/50 transition-all cursor-pointer h-full">
+              <CardHeader>
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-lg bg-primary/10 text-primary">
+                    <Activity className="h-8 w-8" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl group-hover:text-primary transition-colors">
+                      Sync Activity Log
+                    </CardTitle>
+                    <CardDescription>
+                      View detailed sync history and metrics
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" className="w-full">
+                  View Logs
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+
+        {/* Recent Sync Activity */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Recent Sync Activity</CardTitle>
+              <CardDescription>Last 5 sync operations</CardDescription>
+            </div>
+            <Link href="/sync-log">
+              <Button variant="ghost" size="sm">
+                View All
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          </CardHeader>
+          <CardContent>
+            {recentLogs.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No sync activity yet</p>
+                <p className="text-sm mt-1">
+                  Sync operations will appear here when they run
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="flex items-center justify-between p-3 rounded-lg bg-muted/50"
+                  >
+                    <div className="flex items-center gap-3">
+                      {log.status === "success" ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                      ) : log.status === "error" ? (
+                        <XCircle className="h-5 w-5 text-red-500" />
+                      ) : (
+                        <AlertCircle className="h-5 w-5 text-yellow-500" />
+                      )}
+                      <div>
+                        <p className="font-medium">
+                          {log.queueType === "certified" ? "Certified" : "Regular"} Mail
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {log.filesScanned} scanned
+                          {log.filesAdded > 0 && `, +${log.filesAdded}`}
+                          {log.filesUpdated > 0 && `, ~${log.filesUpdated}`}
+                          {log.filesDeleted > 0 && `, -${log.filesDeleted}`}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {getTimeSince(log.syncedAt)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

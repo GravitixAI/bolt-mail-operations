@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { AutoSyncProvider } from "@/components/auto-sync-provider";
 
 export const metadata: Metadata = {
   title: "BOLT Mail Operations",
@@ -27,7 +28,9 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <ThemeProvider>
-          {children}
+          <AutoSyncProvider>
+            {children}
+          </AutoSyncProvider>
           <Toaster />
         </ThemeProvider>
       </body>

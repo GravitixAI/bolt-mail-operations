@@ -2,6 +2,9 @@
 
 import fs from "fs/promises";
 import path from "path";
+import mysql from "mysql2/promise";
+import { getConfig } from "./config-actions";
+import { addSyncLog } from "./sync-log-actions";
 
 export interface PdfFile {
   name: string;
@@ -25,6 +28,16 @@ export interface PdfListResult {
   path?: string;
   // Debug: sample filenames to check pattern
   sampleFilenames?: string[];
+}
+
+export interface SaveToDatabaseResult {
+  success: boolean;
+  message: string;
+  inserted?: number;
+  updated?: number;
+  deleted?: number;
+  errors?: number;
+  scanned?: number;
 }
 
 /**
@@ -160,5 +173,271 @@ export async function listPdfFiles(uncPath: string): Promise<PdfListResult> {
     }
 
     return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Format a username (firstname.lastname) into a display name
+ */
+function formatDisplayName(username: string | null): string | null {
+  if (!username) return null;
+
+  const specialPrefixes = ["mc", "mac", "o'", "de", "van", "von", "la", "le"];
+
+  const formatNamePart = (part: string): string => {
+    if (part.includes("-")) {
+      return part
+        .split("-")
+        .map((p) => formatNamePart(p))
+        .join("-");
+    }
+
+    const lower = part.toLowerCase();
+
+    for (const prefix of specialPrefixes) {
+      if (lower.startsWith(prefix) && lower.length > prefix.length) {
+        const rest = part.slice(prefix.length);
+        const formattedPrefix = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+        const formattedRest = rest.charAt(0).toUpperCase() + rest.slice(1).toLowerCase();
+        return formattedPrefix + formattedRest;
+      }
+    }
+
+    return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+  };
+
+  const parts = username.split(".");
+  if (parts.length >= 2) {
+    const firstName = formatNamePart(parts[0]);
+    const lastName = formatNamePart(parts.slice(1).join(" "));
+    return `${firstName} ${lastName}`;
+  }
+
+  return formatNamePart(username);
+}
+
+/**
+ * Save PDF files to the MySQL database (Full Sync)
+ * - Inserts new files
+ * - Updates existing files
+ * - Deletes files no longer in the folder
+ */
+export async function savePdfFilesToDatabase(
+  files: PdfFile[],
+  uncPath: string,
+  queueType: "certified" | "regular" = "certified",
+  skipLog: boolean = false
+): Promise<SaveToDatabaseResult> {
+  const scanned = files.length;
+  
+  // Get MySQL config
+  const configResult = await getConfig();
+  if (!configResult.success || !configResult.config) {
+    if (!skipLog) {
+      await addSyncLog({
+        queueType,
+        uncPath,
+        filesScanned: scanned,
+        filesAdded: 0,
+        filesUpdated: 0,
+        filesDeleted: 0,
+        errors: 1,
+        status: "error",
+        message: "Failed to load database configuration",
+      });
+    }
+    return { success: false, message: "Failed to load database configuration", scanned };
+  }
+
+  const config = configResult.config;
+
+  if (!config.mysqlHost || !config.mysqlDatabase || !config.mysqlUser) {
+    if (!skipLog) {
+      await addSyncLog({
+        queueType,
+        uncPath,
+        filesScanned: scanned,
+        filesAdded: 0,
+        filesUpdated: 0,
+        filesDeleted: 0,
+        errors: 1,
+        status: "error",
+        message: "MySQL database is not configured",
+      });
+    }
+    return {
+      success: false,
+      message: "MySQL database is not configured. Please configure it in Settings.",
+      scanned,
+    };
+  }
+
+  let connection: mysql.Connection | null = null;
+  let inserted = 0;
+  let updated = 0;
+  let deleted = 0;
+  let errors = 0;
+
+  try {
+    connection = await mysql.createConnection({
+      host: config.mysqlHost,
+      port: parseInt(config.mysqlPort) || 3306,
+      database: config.mysqlDatabase,
+      user: config.mysqlUser,
+      password: config.mysqlPassword,
+      connectTimeout: 10000,
+    });
+
+    // Start transaction for atomic operation
+    await connection.beginTransaction();
+
+    try {
+      // Get current filenames in the database for this UNC path
+      const [existingRows] = await connection.execute<mysql.RowDataPacket[]>(
+        `SELECT filename FROM mail_portal_outgoing_mail WHERE unc_path = ?`,
+        [uncPath]
+      );
+      const existingFilenames = new Set(existingRows.map((row) => row.filename));
+
+      // Track filenames we're inserting/updating
+      const currentFilenames = new Set(files.map((f) => f.name));
+
+      // Insert or update each file
+      for (const file of files) {
+        try {
+          const displayName = formatDisplayName(file.user);
+          const isExisting = existingFilenames.has(file.name);
+
+          const [result] = await connection.execute<mysql.ResultSetHeader>(
+            `INSERT INTO mail_portal_outgoing_mail 
+             (filename, mail_type, created_by_username, created_by_name, creation_date, creation_time, file_size, file_modified_at, is_small_file, unc_path)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               mail_type = VALUES(mail_type),
+               created_by_username = VALUES(created_by_username),
+               created_by_name = VALUES(created_by_name),
+               creation_date = VALUES(creation_date),
+               creation_time = VALUES(creation_time),
+               file_size = VALUES(file_size),
+               file_modified_at = VALUES(file_modified_at),
+               is_small_file = VALUES(is_small_file)`,
+            [
+              file.name,
+              file.mailType,
+              file.user,
+              displayName,
+              file.createdDate,
+              file.createdTime,
+              file.size,
+              new Date(file.modifiedAt),
+              file.isSmallFile ? 1 : 0,
+              uncPath,
+            ]
+          );
+
+          // affectedRows: 1 = inserted, 2 = updated (MySQL returns 2 for ON DUPLICATE KEY UPDATE)
+          if (result.affectedRows === 1 && !isExisting) {
+            inserted++;
+          } else {
+            updated++;
+          }
+        } catch (err) {
+          console.error(`Error inserting/updating ${file.name}:`, err);
+          errors++;
+        }
+      }
+
+      // Delete files that are no longer in the folder
+      const filesToDelete = [...existingFilenames].filter(
+        (filename) => !currentFilenames.has(filename)
+      );
+
+      if (filesToDelete.length > 0) {
+        const placeholders = filesToDelete.map(() => "?").join(", ");
+        const [deleteResult] = await connection.execute<mysql.ResultSetHeader>(
+          `DELETE FROM mail_portal_outgoing_mail WHERE unc_path = ? AND filename IN (${placeholders})`,
+          [uncPath, ...filesToDelete]
+        );
+        deleted = deleteResult.affectedRows;
+      }
+
+      // Commit transaction
+      await connection.commit();
+
+      // Build result message
+      const parts: string[] = [];
+      if (inserted > 0) parts.push(`${inserted} added`);
+      if (updated > 0) parts.push(`${updated} updated`);
+      if (deleted > 0) parts.push(`${deleted} removed`);
+      if (errors > 0) parts.push(`${errors} error(s)`);
+
+      const message = parts.length > 0 
+        ? `Sync complete: ${parts.join(", ")}.`
+        : "No changes to sync.";
+
+      // Log the sync operation
+      if (!skipLog) {
+        await addSyncLog({
+          queueType,
+          uncPath,
+          filesScanned: scanned,
+          filesAdded: inserted,
+          filesUpdated: updated,
+          filesDeleted: deleted,
+          errors,
+          status: errors > 0 ? "partial" : "success",
+          message,
+        });
+      }
+
+      return {
+        success: true,
+        message,
+        inserted,
+        updated,
+        deleted,
+        errors,
+        scanned,
+      };
+    } catch (err) {
+      // Rollback on error
+      await connection.rollback();
+      throw err;
+    }
+  } catch (error) {
+    let message = "Failed to save to database";
+
+    if (error instanceof Error) {
+      if (error.message.includes("ECONNREFUSED")) {
+        message = "Cannot connect to MySQL server. Is it running?";
+      } else if (error.message.includes("Access denied")) {
+        message = "Database access denied. Check your credentials.";
+      } else if (error.message.includes("doesn't exist")) {
+        message = "Table 'mail_portal_outgoing_mail' does not exist. Please create it first.";
+      } else {
+        message = error.message;
+      }
+    }
+
+    // Log the error
+    if (!skipLog) {
+      await addSyncLog({
+        queueType,
+        uncPath,
+        filesScanned: scanned,
+        filesAdded: inserted,
+        filesUpdated: updated,
+        filesDeleted: deleted,
+        errors: errors + 1,
+        status: "error",
+        message,
+      });
+    }
+
+    return { success: false, message, scanned };
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
   }
 }

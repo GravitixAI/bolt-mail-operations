@@ -8,7 +8,7 @@ import { MailQueueView } from "@/components/mail-queue-view";
 import { ConfigModal } from "@/components/config-modal";
 import { getConfig, type ConfigValues } from "@/app/actions/config-actions";
 
-export default function CertifiedMailPage() {
+export default function RegularMailPage() {
   const [uncPath, setUncPath] = useState("");
   const [configLoaded, setConfigLoaded] = useState(false);
 
@@ -17,8 +17,8 @@ export default function CertifiedMailPage() {
     const loadSavedConfig = async () => {
       try {
         const configResult = await getConfig();
-        if (configResult.success && configResult.config?.uncPathCertified) {
-          setUncPath(configResult.config.uncPathCertified);
+        if (configResult.success && configResult.config?.uncPathRegular) {
+          setUncPath(configResult.config.uncPathRegular);
         }
       } catch (error) {
         console.error("Failed to load config:", error);
@@ -30,8 +30,8 @@ export default function CertifiedMailPage() {
   }, []);
 
   const handleConfigSaved = (config: ConfigValues) => {
-    if (config.uncPathCertified) {
-      setUncPath(config.uncPathCertified);
+    if (config.uncPathRegular) {
+      setUncPath(config.uncPathRegular);
     }
   };
 
@@ -42,10 +42,10 @@ export default function CertifiedMailPage() {
         title="BOLT Mail Operations"
       >
         <NavLink href="/">Home</NavLink>
-        <NavLink href="/pdf-browser" active>
-          Certified Mail
+        <NavLink href="/pdf-browser">Certified Mail</NavLink>
+        <NavLink href="/regular-mail" active>
+          Regular Mail
         </NavLink>
-        <NavLink href="/regular-mail">Regular Mail</NavLink>
         <NavLink href="/sync-log">Sync Log</NavLink>
         <ConfigModal
           trigger={
@@ -60,10 +60,10 @@ export default function CertifiedMailPage() {
       <div className="container py-8">
         {configLoaded && (
           <MailQueueView
-            title="Certified Mail PDF Queue"
-            description="Enter a UNC path to list all PDF files in the certified mail directory"
+            title="Regular Mail PDF Queue"
+            description="Enter a UNC path to list all PDF files in the regular mail directory"
             defaultPath={uncPath}
-            queueType="certified"
+            queueType="regular"
           />
         )}
       </div>
