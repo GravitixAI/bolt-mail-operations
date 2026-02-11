@@ -289,6 +289,11 @@ export async function savePdfFilesToDatabase(
       connectTimeout: 10000,
     });
 
+    // Helper to generate API path for a file
+    const getApiPath = (filename: string) => {
+      return `/api/pdf/${encodeURIComponent(filename)}?queue=${queueType}`;
+    };
+
     // Start transaction for atomic operation
     await connection.beginTransaction();
 
@@ -307,13 +312,15 @@ export async function savePdfFilesToDatabase(
       for (const file of files) {
         try {
           const displayName = formatDisplayName(file.user);
+          const apiPath = getApiPath(file.name);
           const isExisting = existingFilenames.has(file.name);
 
           const [result] = await connection.execute<mysql.ResultSetHeader>(
             `INSERT INTO mail_portal_outgoing_mail 
-             (filename, mail_type, created_by_username, created_by_name, creation_date, creation_time, file_size, file_modified_at, is_small_file, unc_path)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (filename, pdf_url, mail_type, created_by_username, created_by_name, creation_date, creation_time, file_size, file_modified_at, is_small_file, unc_path)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
+               pdf_url = VALUES(pdf_url),
                mail_type = VALUES(mail_type),
                created_by_username = VALUES(created_by_username),
                created_by_name = VALUES(created_by_name),
@@ -323,7 +330,8 @@ export async function savePdfFilesToDatabase(
                file_modified_at = VALUES(file_modified_at),
                is_small_file = VALUES(is_small_file)`,
             [
-              file.name,
+              file.name,    // Keep original filename
+              apiPath,      // Store API path in new column
               file.mailType,
               file.user,
               displayName,
@@ -454,6 +462,57 @@ export async function savePdfFilesToDatabase(
     });
 
     return { success: false, message, scanned };
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
+  }
+}
+
+/**
+ * Verify that a file exists in the database for security validation
+ * This prevents serving arbitrary files from the UNC path
+ */
+export async function verifyFileInDatabase(
+  filename: string,
+  uncPath: string
+): Promise<boolean> {
+  // Get MySQL config
+  const configResult = await getConfig();
+  if (!configResult.success || !configResult.config) {
+    return false;
+  }
+
+  const config = configResult.config;
+
+  if (!config.mysqlHost || !config.mysqlDatabase || !config.mysqlUser) {
+    return false;
+  }
+
+  let connection: mysql.Connection | null = null;
+
+  try {
+    connection = await mysql.createConnection({
+      host: config.mysqlHost,
+      port: parseInt(config.mysqlPort) || 3306,
+      database: config.mysqlDatabase,
+      user: config.mysqlUser,
+      password: config.mysqlPassword,
+      connectTimeout: 5000,
+    });
+
+    const [rows] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT 1 FROM mail_portal_outgoing_mail WHERE filename = ? AND unc_path = ? LIMIT 1`,
+      [filename, uncPath]
+    );
+
+    return rows.length > 0;
+  } catch (error) {
+    logError(error instanceof Error ? error : new Error("Database verification failed"), {
+      filename,
+      uncPath,
+    });
+    return false;
   } finally {
     if (connection) {
       await connection.end();

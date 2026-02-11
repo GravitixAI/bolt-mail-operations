@@ -35,6 +35,8 @@ import {
   Eye,
   Database,
   CheckCircle2,
+  ExternalLink,
+  Download,
 } from "lucide-react";
 import {
   listPdfFiles,
@@ -137,9 +139,19 @@ export function MailQueueView({
   };
 
   const handleOpenPdf = (file: PdfFile) => {
-    const fullPath = `${result?.path}\\${file.name}`;
-    const fileUrl = `file:///${fullPath.replace(/\\/g, "/")}`;
-    window.open(fileUrl, "pdf");
+    // Use the PDF proxy API endpoint
+    const pdfUrl = `/api/pdf/${encodeURIComponent(file.name)}?queue=${queueType}`;
+    window.open(pdfUrl, "_blank");
+  };
+
+  const handleDownloadPdf = (file: PdfFile) => {
+    // Use the PDF proxy API endpoint with download flag
+    const pdfUrl = `/api/pdf/${encodeURIComponent(file.name)}?queue=${queueType}&download=true`;
+    window.open(pdfUrl, "_blank");
+  };
+
+  const getPdfViewUrl = (file: PdfFile) => {
+    return `/api/pdf/${encodeURIComponent(file.name)}?queue=${queueType}`;
   };
 
   const handleSaveToDatabase = async () => {
@@ -234,7 +246,7 @@ export function MailQueueView({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[50px] text-center">View</TableHead>
+                        <TableHead className="w-[100px] text-center">Actions</TableHead>
                         <TableHead>Type of Mail</TableHead>
                         <TableHead>Created By</TableHead>
                         <TableHead>Name</TableHead>
@@ -247,38 +259,62 @@ export function MailQueueView({
                       {result.files.map((file) => (
                         <TableRow
                           key={file.name}
-                          className={`cursor-pointer hover:bg-accent ${
+                          className={`hover:bg-accent ${
                             file.isSmallFile
                               ? "bg-yellow-100 dark:bg-yellow-900/30"
                               : ""
                           }`}
-                          onClick={() => handleOpenPdf(file)}
                         >
                           <TableCell className="text-center">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenPdf(file);
-                                  }}
-                                >
-                                  <Eye className="h-4 w-4 text-primary" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Click to view PDF</p>
-                              </TooltipContent>
-                            </Tooltip>
+                            <div className="flex items-center justify-center gap-1">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a
+                                    href={getPdfViewUrl(file)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center justify-center h-8 w-8 rounded-md hover:bg-accent transition-colors"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Eye className="h-4 w-4 text-primary" />
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>View PDF in browser</p>
+                                </TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDownloadPdf(file);
+                                    }}
+                                  >
+                                    <Download className="h-4 w-4 text-muted-foreground" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Download PDF</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
                           </TableCell>
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
-                              <FileText className="h-4 w-4 text-red-500" />
+                              <FileText className="h-4 w-4 text-red-500 flex-shrink-0" />
                               {file.mailType ? (
-                                file.mailType
+                                <a
+                                  href={getPdfViewUrl(file)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hover:text-primary hover:underline transition-colors"
+                                >
+                                  {file.mailType}
+                                </a>
                               ) : (
                                 <Tooltip>
                                   <TooltipTrigger>
