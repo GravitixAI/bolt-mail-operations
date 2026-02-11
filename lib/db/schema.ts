@@ -59,4 +59,10 @@ export const CONFIG_KEYS = {
   // Auto-sync settings
   AUTO_SYNC_ENABLED: 'auto_sync_enabled',
   AUTO_SYNC_INTERVAL: 'auto_sync_interval', // In minutes
+  
+  // HelpSpot integration settings
+  HELPSPOT_ENDPOINT: 'helpspot_endpoint',
+  HELPSPOT_USERNAME: 'helpspot_username',
+  HELPSPOT_PASSWORD: 'helpspot_password', // Note: Consider encryption for production
+  HELPSPOT_CATEGORY_ID: 'helpspot_category_id',
 } as const;

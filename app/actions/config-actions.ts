@@ -18,6 +18,11 @@ export interface ConfigValues {
   mysqlPassword: string;
   autoSyncEnabled: boolean;
   autoSyncInterval: number; // In minutes
+  // HelpSpot integration settings
+  helpspotEndpoint: string;
+  helpspotUsername: string;
+  helpspotPassword: string;
+  helpspotCategoryId: string;
 }
 
 export interface ConfigResult {
@@ -97,6 +102,11 @@ export async function getConfig(): Promise<ConfigResult> {
       mysqlPassword: (await getConfigValue(CONFIG_KEYS.MYSQL_PASSWORD)) || "",
       autoSyncEnabled: autoSyncEnabledStr === "true",
       autoSyncInterval: autoSyncIntervalStr ? parseInt(autoSyncIntervalStr, 10) : 5, // Default 5 minutes
+      // HelpSpot integration settings
+      helpspotEndpoint: (await getConfigValue(CONFIG_KEYS.HELPSPOT_ENDPOINT)) || "",
+      helpspotUsername: (await getConfigValue(CONFIG_KEYS.HELPSPOT_USERNAME)) || "",
+      helpspotPassword: (await getConfigValue(CONFIG_KEYS.HELPSPOT_PASSWORD)) || "",
+      helpspotCategoryId: (await getConfigValue(CONFIG_KEYS.HELPSPOT_CATEGORY_ID)) || "7", // Default category 7
     };
 
     return { success: true, config };
@@ -120,6 +130,11 @@ export async function saveConfig(config: ConfigValues): Promise<ConfigResult> {
     await setConfigValue(CONFIG_KEYS.MYSQL_PASSWORD, config.mysqlPassword);
     await setConfigValue(CONFIG_KEYS.AUTO_SYNC_ENABLED, config.autoSyncEnabled ? "true" : "false");
     await setConfigValue(CONFIG_KEYS.AUTO_SYNC_INTERVAL, config.autoSyncInterval.toString());
+    // HelpSpot integration settings
+    await setConfigValue(CONFIG_KEYS.HELPSPOT_ENDPOINT, config.helpspotEndpoint);
+    await setConfigValue(CONFIG_KEYS.HELPSPOT_USERNAME, config.helpspotUsername);
+    await setConfigValue(CONFIG_KEYS.HELPSPOT_PASSWORD, config.helpspotPassword);
+    await setConfigValue(CONFIG_KEYS.HELPSPOT_CATEGORY_ID, config.helpspotCategoryId);
 
     return { success: true, message: "Configuration saved successfully" };
   } catch (error) {
@@ -232,6 +247,108 @@ export async function testUncPath(uncPath: string): Promise<TestConnectionResult
         message = "Path not found or does not exist";
       } else if (error.message.includes("EACCES") || error.message.includes("EPERM")) {
         message = "Access denied to the specified path";
+      } else {
+        message = error.message;
+      }
+    }
+
+    return { success: false, message };
+  }
+}
+
+/**
+ * Test HelpSpot API connection
+ * Uses HTTP Basic Authentication as per the HelpSpot PHP SDK
+ */
+export async function testHelpspotConnection(config: {
+  endpoint: string;
+  username: string;
+  password: string;
+}): Promise<TestConnectionResult> {
+  if (!config.endpoint || !config.username || !config.password) {
+    return {
+      success: false,
+      message: "Please fill in all required fields (endpoint, username, password)",
+    };
+  }
+
+  try {
+    // Normalize endpoint URL
+    let endpoint = config.endpoint.trim();
+    if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+      endpoint = "https://" + endpoint;
+    }
+    if (endpoint.endsWith("/")) {
+      endpoint = endpoint.slice(0, -1);
+    }
+
+    // Test the connection by calling the API version endpoint
+    // HelpSpot API uses HTTP Basic Authentication
+    const apiUrl = `${endpoint}/api/index.php`;
+    const basicAuth = Buffer.from(`${config.username}:${config.password}`).toString("base64");
+    
+    const params = new URLSearchParams({
+      method: "private.version",
+    });
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": `Basic ${basicAuth}`,
+      },
+      body: params.toString(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        return {
+          success: false,
+          message: "Authentication failed. Please check your username and password.",
+        };
+      }
+      return {
+        success: false,
+        message: `HTTP error: ${response.status} ${response.statusText}`,
+      };
+    }
+
+    const xmlText = await response.text();
+
+    // Check for errors in the XML response
+    if (xmlText.includes("<error>")) {
+      const errorMatch = xmlText.match(/<description>([^<]+)<\/description>/);
+      const errorMessage = errorMatch ? errorMatch[1] : "Unknown API error";
+      return {
+        success: false,
+        message: `HelpSpot API error: ${errorMessage}`,
+      };
+    }
+
+    // Extract version if available
+    const versionMatch = xmlText.match(/<version>([^<]+)<\/version>/);
+    const version = versionMatch ? versionMatch[1] : "Unknown";
+
+    return {
+      success: true,
+      message: "Connection successful!",
+      details: {
+        serverVersion: version,
+        database: endpoint,
+      },
+    };
+  } catch (error) {
+    let message = "Connection failed";
+
+    if (error instanceof Error) {
+      if (error.message.includes("ECONNREFUSED")) {
+        message = `Cannot connect to HelpSpot server. Is the server running?`;
+      } else if (error.message.includes("ENOTFOUND")) {
+        message = `Host not found. Please check the endpoint URL.`;
+      } else if (error.message.includes("ETIMEDOUT")) {
+        message = "Connection timed out. Please check the endpoint URL.";
+      } else if (error.message.includes("fetch")) {
+        message = "Failed to reach HelpSpot server. Please check the endpoint URL.";
       } else {
         message = error.message;
       }

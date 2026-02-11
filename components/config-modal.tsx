@@ -35,6 +35,7 @@ import {
   EyeOff,
   Save,
   RefreshCw,
+  Ticket,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -49,6 +50,7 @@ import {
   saveConfig,
   testMySqlConnection,
   testUncPath,
+  testHelpspotConnection,
   type ConfigValues,
   type TestConnectionResult,
 } from "@/app/actions/config-actions";
@@ -100,15 +102,22 @@ export function ConfigModal({ trigger, onConfigSaved }: ConfigModalProps) {
     mysqlPassword: "",
     autoSyncEnabled: false,
     autoSyncInterval: 5,
+    helpspotEndpoint: "",
+    helpspotUsername: "",
+    helpspotPassword: "",
+    helpspotCategoryId: "7",
   });
 
   // Test results
   const [certifiedTestResult, setCertifiedTestResult] = useState<TestConnectionResult | null>(null);
   const [regularTestResult, setRegularTestResult] = useState<TestConnectionResult | null>(null);
   const [mysqlTestResult, setMysqlTestResult] = useState<TestConnectionResult | null>(null);
+  const [helpspotTestResult, setHelpspotTestResult] = useState<TestConnectionResult | null>(null);
   const [testingCertified, setTestingCertified] = useState(false);
   const [testingRegular, setTestingRegular] = useState(false);
   const [testingMysql, setTestingMysql] = useState(false);
+  const [testingHelpspot, setTestingHelpspot] = useState(false);
+  const [showHelpspotPassword, setShowHelpspotPassword] = useState(false);
 
   // Sync logs
   const [syncLogs, setSyncLogs] = useState<SyncLogEntry[]>([]);
@@ -220,6 +229,26 @@ export function ConfigModal({ trigger, onConfigSaved }: ConfigModalProps) {
     }
   };
 
+  const handleTestHelpspot = async () => {
+    setTestingHelpspot(true);
+    setHelpspotTestResult(null);
+    try {
+      const result = await testHelpspotConnection({
+        endpoint: config.helpspotEndpoint,
+        username: config.helpspotUsername,
+        password: config.helpspotPassword,
+      });
+      setHelpspotTestResult(result);
+    } catch {
+      setHelpspotTestResult({
+        success: false,
+        message: "Test failed unexpectedly",
+      });
+    } finally {
+      setTestingHelpspot(false);
+    }
+  };
+
   const updateConfig = (field: keyof ConfigValues, value: string) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
     // Clear test results when config changes
@@ -229,6 +258,8 @@ export function ConfigModal({ trigger, onConfigSaved }: ConfigModalProps) {
       setRegularTestResult(null);
     } else if (field.startsWith("mysql")) {
       setMysqlTestResult(null);
+    } else if (field.startsWith("helpspot")) {
+      setHelpspotTestResult(null);
     }
   };
 
@@ -258,7 +289,7 @@ export function ConfigModal({ trigger, onConfigSaved }: ConfigModalProps) {
           </div>
         ) : (
           <Tabs defaultValue="unc" className="mt-4">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="unc" className="flex items-center gap-2">
                 <FolderOpen className="h-4 w-4" />
                 UNC Paths
@@ -266,6 +297,10 @@ export function ConfigModal({ trigger, onConfigSaved }: ConfigModalProps) {
               <TabsTrigger value="mysql" className="flex items-center gap-2">
                 <Database className="h-4 w-4" />
                 MySQL
+              </TabsTrigger>
+              <TabsTrigger value="helpspot" className="flex items-center gap-2">
+                <Ticket className="h-4 w-4" />
+                HelpSpot
               </TabsTrigger>
               <TabsTrigger value="autosync" className="flex items-center gap-2">
                 <RefreshCw className="h-4 w-4" />
@@ -539,6 +574,141 @@ export function ConfigModal({ trigger, onConfigSaved }: ConfigModalProps) {
                       {mysqlTestResult.details?.serverVersion && (
                         <p className="mt-1 text-xs opacity-75">
                           MySQL Version: {mysqlTestResult.details.serverVersion}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="helpspot" className="space-y-4 mt-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">HelpSpot Integration</CardTitle>
+                  <CardDescription>
+                    Configure HelpSpot API for mail removal requests (trash icon functionality)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="helpspotEndpoint">API Endpoint</Label>
+                    <Input
+                      id="helpspotEndpoint"
+                      placeholder="https://help.example.com"
+                      value={config.helpspotEndpoint}
+                      onChange={(e) => updateConfig("helpspotEndpoint", e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      The base URL of your HelpSpot instance (e.g., https://help.collincad.org)
+                    </p>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-2">
+                    <Label htmlFor="helpspotUsername">API Username</Label>
+                    <Input
+                      id="helpspotUsername"
+                      placeholder="api_user@example.com"
+                      value={config.helpspotUsername}
+                      onChange={(e) => updateConfig("helpspotUsername", e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="helpspotPassword">API Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="helpspotPassword"
+                        type={showHelpspotPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={config.helpspotPassword}
+                        onChange={(e) => updateConfig("helpspotPassword", e.target.value)}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowHelpspotPassword(!showHelpspotPassword)}
+                      >
+                        {showHelpspotPassword ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="space-y-2">
+                    <Label htmlFor="helpspotCategoryId">Default Category ID</Label>
+                    <Input
+                      id="helpspotCategoryId"
+                      placeholder="7"
+                      value={config.helpspotCategoryId}
+                      onChange={(e) => updateConfig("helpspotCategoryId", e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      The HelpSpot category ID for removal request tickets (default: 7)
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={handleTestHelpspot}
+                      disabled={
+                        testingHelpspot ||
+                        !config.helpspotEndpoint ||
+                        !config.helpspotUsername ||
+                        !config.helpspotPassword
+                      }
+                    >
+                      {testingHelpspot ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Testing...
+                        </>
+                      ) : (
+                        <>
+                          <Ticket className="mr-2 h-4 w-4" />
+                          Test Connection
+                        </>
+                      )}
+                    </Button>
+
+                    {helpspotTestResult && (
+                      <Badge
+                        variant={helpspotTestResult.success ? "default" : "destructive"}
+                        className="flex items-center gap-1"
+                      >
+                        {helpspotTestResult.success ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : (
+                          <XCircle className="h-3 w-3" />
+                        )}
+                        {helpspotTestResult.success ? "Connected" : "Failed"}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {helpspotTestResult && (
+                    <div
+                      className={`p-3 rounded-lg text-sm ${
+                        helpspotTestResult.success
+                          ? "bg-green-500/10 text-green-700 dark:text-green-400"
+                          : "bg-destructive/10 text-destructive"
+                      }`}
+                    >
+                      <p>{helpspotTestResult.message}</p>
+                      {helpspotTestResult.details?.serverVersion && (
+                        <p className="mt-1 text-xs opacity-75">
+                          HelpSpot Version: {helpspotTestResult.details.serverVersion}
                         </p>
                       )}
                     </div>
